@@ -7,12 +7,11 @@ using UnityEngine;
 namespace Game
 {
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
-    public sealed class PlayerVisionCone : MonoBehaviour, IDisposable
+    public sealed class PlayerVisionCone2D : MonoBehaviour, IDisposable
     {
         [SerializeField] private LayerMask _visionEnvLayerMask = default; // 环境的LayerMask
         [SerializeField] private LayerMask _visionTargetLayerMask = default; // 目标的LayerMask
         [SerializeField] private bool _open;
-        [SerializeField] private float _visionHeight = 0.2f; //相对parent的高度
         [SerializeField] private float _visionConeAngle = 60.0f; //视椎角度
         [SerializeField] private float _visionConeRange = 10.0f; //视椎范围
         [SerializeField] private float _visionPerceptiveRadius = 2.0f; //圆的半径
@@ -23,8 +22,6 @@ namespace Game
         private Vector3[] _localVertices = null!;
         private NativeArray<int> _triangles;
         private int _pointAmount;
-        private const int MaxEnvHits = 4;
-        private const int MaxTargetHits = 16;
 
         private void Awake()
         {
@@ -42,7 +39,7 @@ namespace Game
 
         protected void FixedUpdate()
         {
-            transform.localPosition = new Vector3(0, _visionHeight, 0);
+            transform.localPosition = Vector3.zero;
             //clear VisionTargetTag first
             foreach (TargetVisionTag targetVisionTag in GameObject.FindObjectsOfType<TargetVisionTag>())
             {
@@ -61,10 +58,6 @@ namespace Game
 
                 NativeArray<Vector3> tempLocalVertices = new NativeArray<Vector3>(_pointAmount - 1, Allocator.TempJob);
                 NativeArray<bool> tempIsHitEnv = new NativeArray<bool>(_pointAmount - 1, Allocator.TempJob);
-                NativeArray<RaycastCommand> envRaycastCommands = new(_pointAmount - 1, Allocator.TempJob);
-                NativeArray<RaycastHit> envRaycastHits = new((_pointAmount - 1) * MaxEnvHits, Allocator.TempJob);
-                NativeArray<SpherecastCommand> sphereCastCommands = new(_pointAmount - 1, Allocator.TempJob);
-                NativeArray<RaycastHit> sphereCastHits = new((_pointAmount - 1) * MaxTargetHits, Allocator.TempJob);
                 Vector3 centerPosition = transform.position;
 
                 #region 创建Cone的顶点数
@@ -78,9 +71,9 @@ namespace Game
                         : coneAngle * 0.5f * Mathf.Deg2Rad;
 
                     tempLocalVertices[realVerticesIndex] = new Vector3(
+                        Mathf.Cos(radian) * coneRange,
                         Mathf.Sin(radian) * coneRange,
-                        0,
-                        Mathf.Cos(radian) * coneRange
+                        0
                     );
                     realVerticesIndex++;
                 }
@@ -99,9 +92,9 @@ namespace Game
                     float nextAngle = Mathf.Min(coneAngle * 0.5f + i * segmentAngle, 360.0f - coneAngle * 0.5f);
                     float radian = nextAngle * Mathf.Deg2Rad;
                     tempLocalVertices[realVerticesIndex] = new Vector3(
+                        Mathf.Cos(radian) * radius,
                         Mathf.Sin(radian) * radius,
-                        0,
-                        Mathf.Cos(radian) * radius
+                        0
                     );
                     realVerticesIndex++;
                 }
@@ -110,27 +103,25 @@ namespace Game
 
                 //----------check env, maybe change vertex position-----------
 
-                #region 检测环境，刷新顶点数据
+                #region 检测2D环境，刷新顶点数据
+
+                using PooledArray<RaycastHit2D> rayCastHits = new PooledArray<RaycastHit2D>(4);
 
                 for (int i = 0; i < _pointAmount - 1; i++)
                 {
-                    envRaycastCommands[i] = new RaycastCommand(
-                        from: centerPosition,
+                    int size = Physics2D.RaycastNonAlloc( //使用2D射线检测环境
+                        origin: centerPosition,
                         direction: transform.TransformDirection(tempLocalVertices[i]).normalized,
                         distance: tempLocalVertices[i].magnitude, //注意：这里要保证parent没有scale，否则要重新计算世界坐标系下的长度
-                        queryParameters: new QueryParameters(layerMask: _visionEnvLayerMask, hitTriggers: QueryTriggerInteraction.Ignore)
-                    );
-                }
+                        results: rayCastHits.GetValue(),
+                        layerMask: _visionEnvLayerMask);
 
-                JobHandle raycastJob = RaycastCommand.ScheduleBatch(commands: envRaycastCommands, results: envRaycastHits, minCommandsPerJob: 4, maxHits: MaxEnvHits);
-                raycastJob.Complete();
-                for (int i = 0; i < _pointAmount - 1; i++)
-                {
+                    if (size == 0) continue;
+
                     float nearestDistance = float.MaxValue;
-                    for (int j = 0; j < MaxEnvHits; j++)
+                    for (int j = 0; j < size; j++)
                     {
-                        int index = i * MaxEnvHits + j;
-                        RaycastHit hit = envRaycastHits[index];
+                        RaycastHit2D hit = rayCastHits[j];
                         if (hit.collider != null && nearestDistance > hit.distance)
                         {
                             nearestDistance = hit.distance;
@@ -147,37 +138,36 @@ namespace Game
                 #endregion
 
                 //---------------check target------------------
-                using PooledArray<Collider> overlapSphereTargetResults = new PooledArray<Collider>(32);
-                int count = Physics.OverlapSphereNonAlloc(
-                    position: centerPosition,
+                using PooledArray<Collider2D> overlapSphereTargetResults = new PooledArray<Collider2D>(32);
+                int count = Physics2D.OverlapCircleNonAlloc(
+                    point: centerPosition,
                     radius: coneRange, //线检测大视椎范围内的enemy
                     results: overlapSphereTargetResults.GetValue(), //获取可能要显示的目标
-                    layerMask: _visionTargetLayerMask,
-                    queryTriggerInteraction: QueryTriggerInteraction.Ignore);
+                    layerMask: _visionTargetLayerMask);
 
-                using PooledArray<RaycastHit> targetRaycastHits = new PooledArray<RaycastHit>(4);
+                using PooledArray<RaycastHit2D> targetRaycastHits = new PooledArray<RaycastHit2D>(4);
                 //对每个可能的目标进行2个细节筛选 1.环境遮挡不显示 2.不在小圆内并且角度不在 cone范围内不显示
                 for (int i = 0; i < count; i++)
                 {
-                    Collider collider = overlapSphereTargetResults[i];
-                    Vector3 colliderPosition = collider.transform.position;
-                    Vector3 direction = colliderPosition - centerPosition;
-                    int envRaycastCount = Physics.RaycastNonAlloc(
+                    Collider2D collider = overlapSphereTargetResults[i];
+                    Vector3 targetColliderPosition = collider.transform.position;
+                    Vector3 direction = targetColliderPosition - centerPosition;
+                    int envRaycastCount = Physics2D.RaycastNonAlloc(
                         origin: centerPosition,
                         direction: direction.normalized,
-                        maxDistance: direction.magnitude,
+                        distance: direction.magnitude,
                         results: targetRaycastHits,
                         layerMask: _visionEnvLayerMask);
 
                     if (envRaycastCount != 0) continue; //如果enemy被环境遮挡了，直接不显示
 
-                    bool inCircle = Vector3.Distance(colliderPosition, centerPosition) <= (radius + ColliderHalfSize(collider));
+                    bool inCircle = Vector3.Distance(targetColliderPosition, centerPosition) <= (radius + ColliderHalfSize(collider));
 
                     if (!inCircle)
                     {
-                        Vector2 direction2D = new Vector2(direction.x, direction.z);
-                        Vector2 startDirection = new Vector2(coneStartDirection.x, coneStartDirection.z);
-                        Vector2 endDirection = new Vector2(coneEndDirection.x, coneEndDirection.z);
+                        Vector2 direction2D = new Vector2(direction.x, direction.y);
+                        Vector2 startDirection = new Vector2(coneStartDirection.x, coneStartDirection.y);
+                        Vector2 endDirection = new Vector2(coneEndDirection.x, coneEndDirection.y);
 
                         float flag = Mathf.Sign(Vector2.SignedAngle(startDirection, endDirection));
                         float v1 = Mathf.Sign(Vector2.SignedAngle(startDirection, direction2D));
@@ -219,10 +209,6 @@ namespace Game
 
                 tempLocalVertices.Dispose();
                 tempIsHitEnv.Dispose();
-                envRaycastCommands.Dispose();
-                envRaycastHits.Dispose();
-                sphereCastCommands.Dispose();
-                sphereCastHits.Dispose();
 
 #if UNITY_EDITOR
                 _testGizmoAmount = verticesIndex;
@@ -263,18 +249,18 @@ namespace Game
         }
 
         //需要扩展常见的类型
-        private static float ColliderHalfSize(Collider collider)
+        private static float ColliderHalfSize(Collider2D collider2D)
         {
-            if (collider is BoxCollider boxCollider)
+            if (collider2D is BoxCollider2D boxCollider2D)
             {
-                return boxCollider.size.magnitude * 0.5f;
+                return boxCollider2D.size.magnitude * 0.5f;
             }
-            else if (collider is SphereCollider sphereCollider)
+            else if (collider2D is CircleCollider2D circleCollider2D)
             {
-                return sphereCollider.radius;
+                return circleCollider2D.radius;
             }
 
-            Debug.LogError("  Collider type not supported: " + collider.GetType());
+            Debug.LogError("  Collider type not supported: " + collider2D.GetType());
             return 0;
         }
     }

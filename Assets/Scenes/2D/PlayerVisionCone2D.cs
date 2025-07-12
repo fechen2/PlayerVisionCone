@@ -27,6 +27,8 @@ namespace Game
             _mesh = new Mesh();
             GetComponent<MeshFilter>().mesh = _mesh;
             _meshRenderer = GetComponent<MeshRenderer>();
+            _meshRenderer.sortingLayerName = "VisionCone"; //可改成配置
+            _meshRenderer.sortingOrder = 0; //可改成配置
         }
 
         private void OnEnable()

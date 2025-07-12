@@ -66,6 +66,7 @@
     <Compile Include="Assets\Samples\Cinemachine\2.10.3\Cinemachine Example Scenes\Shared\Scripts\ExampleHelpWindow.cs" />
     <Compile Include="Assets\Samples\Cinemachine\2.10.3\Cinemachine Example Scenes\Shared\Scripts\ThirdPersonFollowDistanceModifier.cs" />
     <Compile Include="Assets\Samples\Cinemachine\2.10.3\Cinemachine Example Scenes\Shared\Scripts\InputSystemHelper.cs" />
+    <None Include="Assets\Scenes\2D\VisionShader.shader" />
     <None Include="Assets\Resources\BillingMode.json" />
     <Reference Include="UnityEngine">
       <HintPath>C:\Program Files\Unity\Hub\Editor\2022.3.33f1\Editor\Data\Managed\UnityEngine\UnityEngine.dll</HintPath>
